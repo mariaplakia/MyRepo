@@ -114,6 +114,20 @@ def write_to_postgre(username,password,port,syn_keys_df,synonyms_df,terms_df,lin
     insert_stmt2 = 'INSERT INTO {} ({}) VALUES {} ON CONFLICT (concatvalue) DO UPDATE SET {}'.format("syn_keys_df", columns2, values2, update_str2)
     cursor.execute(insert_stmt2)
     
+    
+    # Parent info table insert for values that do not exist in table by using conflict
+    link_all_df['concatvalue'] = link_all_df['child_short_form'].map(str) + link_all_df['parent_short_form'].map(str)
+    
+    link_all_columns = list(link_all_df)
+    columns4 = ','.join(link_all_columns)
+    values_list4 = list(link_all_df.itertuples(index=False, name=None))
+    values4 = str(values_list4).replace("[","").replace("]","")
+    update_list4 = ["{} = EXCLUDED.{} ".format(col, col) for col in link_all_columns]
+    update_str4 = ','.join(update_list4)
+    
+    insert_stmt2 = 'INSERT INTO {} ({}) VALUES {} ON CONFLICT (concatvalue2) DO UPDATE SET {}'.format("link_all_df", columns4, values4, update_str4)
+    cursor.execute(insert_stmt2)
+    
     cursor.close()
     #engine = create_engine('postgresql://'+username+':'+str(password)+'@localhost:5432/postgres')
     #syn_keys_df.to_sql('syn_keys_df', schema = 'public', con =engine, if_exists = 'replace',index = False)
