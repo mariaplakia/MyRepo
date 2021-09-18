@@ -26,10 +26,20 @@ def db_config():
     
     return username,password,port
 
-# Get eof terms and synonyms
-def get_terms_syns():
+# Get total number of pages to loop 
+def get_total_pages():
     
     response_1 = requests.get("http://www.ebi.ac.uk/ols/api/ontologies/efo/terms")
+    resp_json_1 = response_1.json()
+    resp_df = json_normalize(data=resp_json_1['page'])
+    total_pages =resp_df['totalPages'][0]
+    
+    return total_pages
+
+# Get eof terms and synonyms
+def get_terms_syns(i):
+    
+    response_1 = requests.get("http://www.ebi.ac.uk/ols/api/ontologies/efo/terms?page="+str(i)+"&size=20")
     resp_json_1 = response_1.json()
     
     resp_df = json_normalize(data=resp_json_1['_embedded']['terms'], record_path=['synonyms'],meta=['iri', 'short_form','label'])
@@ -78,6 +88,9 @@ def write_to_postgre(username,password,port,syn_keys_df,synonyms_df,terms_df,lin
     
     cursor = connection.cursor()
     
+    synonyms_df['synonyms_label'] = synonyms_df['synonyms_label'].str.replace(r"'", r" ").replace(r",", r" ")
+    terms_df['efo_label'] = terms_df['efo_label'].str.replace(r"'", r" ").replace(r",", r" ")
+    
     # Synonyms insert for values that do not exist in table by using conflict
     synonyms_df_columns = list(synonyms_df)
     columns1 = ','.join(synonyms_df_columns)
@@ -125,7 +138,7 @@ def write_to_postgre(username,password,port,syn_keys_df,synonyms_df,terms_df,lin
     update_list4 = ["{} = EXCLUDED.{} ".format(col, col) for col in link_all_columns]
     update_str4 = ','.join(update_list4)
     
-    insert_stmt2 = 'INSERT INTO {} ({}) VALUES {} ON CONFLICT (concatvalue2) DO UPDATE SET {}'.format("link_all_df", columns4, values4, update_str4)
+    insert_stmt2 = 'INSERT INTO {} ({}) VALUES {} ON CONFLICT (concatvalue) DO UPDATE SET {}'.format("link_all_df", columns4, values4, update_str4)
     cursor.execute(insert_stmt2)
     
     cursor.close()
@@ -156,28 +169,36 @@ if __name__ == "__main__":
         # Postgres Username/Password
         username,password,port = db_config()
         
-        # return terms-synonyms dataframes
-        syn_keys_df,synonyms_df,terms_df = get_terms_syns()
+        # Get total number of terms' pages
         
-        # get list of unique iris in order to loop and extract parent hrefs content
-        iri_list = terms_df['iri'].str.replace('://', '%253A%252F%252F').str.replace('/', '%252F').unique()
-        
-        appended_data = []
-        
-        # loop through iris and concat the results into one single dataframe
-        for iri in iri_list:
-        
-            links_unified = get_parent(iri)
-        
-            appended_data.append(links_unified)
-        
-        
-        link_all_df = pd.concat(appended_data)
-        link_all_df = link_all_df.rename(columns ={'short_form':'child_short_form'}).drop(['iri','label','_links.parents.href'], 1).drop_duplicates()
-        
-        #write results to the db
-        write_to_postgre(username,password,port,syn_keys_df,synonyms_df,terms_df,link_all_df)
-        
+        total_pages = get_total_pages()
+
+        #loop for paginated pages
+        for i in range(0,total_pages):
+            print(i)
+            # return terms-synonyms dataframes
+            syn_keys_df,synonyms_df,terms_df = get_terms_syns(i)
+            
+            # get list of unique iris in order to loop and extract parent hrefs content
+            iri_list = terms_df['iri'].str.replace('://', '%253A%252F%252F').str.replace('/', '%252F').unique()
+            
+            appended_data = []
+            
+            # loop through iris and concat the results into one single dataframe
+            for iri in iri_list:
+            
+                links_unified = get_parent(iri)
+            
+                appended_data.append(links_unified)
+            
+            
+            link_all_df = pd.concat(appended_data)
+            link_all_df = link_all_df.rename(columns ={'short_form':'child_short_form'}).drop(['iri','label','_links.parents.href'], 1).drop_duplicates()
+            
+            #write results to the db
+            write_to_postgre(username,password,port,syn_keys_df,synonyms_df,terms_df,link_all_df)
+            
+            
         #################### For logs Purpose ##################
         
         #script end time  
